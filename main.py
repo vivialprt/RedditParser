@@ -1,6 +1,7 @@
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
+import datetime
 
 
 def get_post_url(post):
@@ -26,11 +27,23 @@ def get_user_info(username, driver):
 
     # Load a page
     driver.get(link)
-    # resp = driver.execute_script('return document.documentElement.outerHTML')
-    print(driver.current_url)
+    resp = driver.execute_script('return document.documentElement.outerHTML')
+    soup = BeautifulSoup(resp, 'html.parser')
+
+    user_karma = int(soup.find(
+        'span', id='profile--id-card--highlight-tooltip--karma'
+    ).text.replace(',', ''))
+
+    user_cakeday_string = soup.find(
+        'span', id='profile--id-card--highlight-tooltip--cakeday'
+    ).text
+    user_cakeday = datetime.datetime.strptime(user_cakeday_string, '%B %d, %Y')
+
+    print(user_cakeday)
 
     # close the tab
     driver.find_element_by_tag_name('body').send_keys(Keys.CONTROL + 'w')
+    return user_karma, user_cakeday
 
 
 if __name__ == '__main__':
