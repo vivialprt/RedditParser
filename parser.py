@@ -5,6 +5,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 import datetime
 import time
+import pandas as pd
 
 
 class RedditParser:
@@ -17,7 +18,7 @@ class RedditParser:
         self.num_posts = num_posts
 
         options = webdriver.FirefoxOptions()
-        # options.add_argument('--headless')
+        options.add_argument('--headless')
         self.driver = webdriver.Firefox(options=options)
         self.driver.get(self.link)
         self.driver.execute_script('return document.documentElement.outerHTML')
@@ -41,25 +42,30 @@ class RedditParser:
                 if data['url'] is None or data['url'] in seen_urls:
                     continue
                 data['username'] = self._get_post_username(post)
-                print(data['username'])
-                data['post_category'] = self._get_post_category(post)
-                data['comments_number'] = self._get_comments_number(post)
-                data['votes_number'] = self._get_votes_number(post)
-                data['post_data'] = self._get_post_date(post)
+                if data['username'] is None:
+                    continue
                 user_data = self._get_user_info(data['username'])
+                if None in user_data:
+                    continue
                 data['user_karma'] = user_data[0]
                 data['user_cakeday'] = user_data[1]
                 data['post_karma'] = user_data[2]
                 data['comment_karma'] = user_data[3]
+                data['post_category'] = self._get_post_category(post)
+                data['comments_number'] = self._get_comments_number(post)
+                data['votes_number'] = self._get_votes_number(post)
+                data['post_date'] = self._get_post_date(post)
 
                 seen_urls.append(data['url'])
                 posts.append(data)
                 if len(posts) == self.num_posts:
+                    print(len(posts), f'({seen_posts})')
                     break
+                print(len(posts), f'({seen_posts})')
             if len(posts) >= self.num_posts:
                 break
             self.driver.find_element_by_tag_name('body').send_keys(Keys.END)
-        return posts
+        return pd.DataFrame(posts)
 
     def _get_post_url(self, post):
         for a in post.find_all('a'):
@@ -124,38 +130,41 @@ class RedditParser:
 
         # Load a page
         self.driver.execute_script('return document.documentElement.outerHTML')
+        time.sleep(2)
 
         try:
             karma_span = self.driver.find_element_by_id(
                 'profile--id-card--highlight-tooltip--karma'
             )
-
-            hover = ActionChains(self.driver).move_to_element(karma_span)
-            hover.perform()
-            time.sleep(5)
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-
-            user_karma = int(soup.find(
-                'span', id='profile--id-card--highlight-tooltip--karma'
-            ).text.replace(',', ''))
-
-            user_cakeday_string = soup.find(
-                'span', id='profile--id-card--highlight-tooltip--cakeday'
-            ).text
-            user_cakeday = datetime.datetime.strptime(
-                user_cakeday_string, '%B %d, %Y'
-            )
-
-            karma_extended = soup.find(
-                class_='_3uK2I0hi3JFTKnMUFHD2Pd'
-            ).text.split('\n')
-            post_karma = int(karma_extended[0].split()[0].replace(',', ''))
-            comment_karma = int(karma_extended[1].split()[0].replace(',', ''))
-
-        except (NoSuchElementException, AttributeError):
+        except NoSuchElementException:
             self.driver.close()
             self.driver.switch_to.window(self.driver.window_handles[0])
             return None, None, None, None
+
+        hover = ActionChains(self.driver).move_to_element(karma_span)
+        hover.perform()
+        soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+
+        user_karma = int(soup.find(
+            'span', id='profile--id-card--highlight-tooltip--karma'
+        ).text.replace(',', ''))
+
+        user_cakeday_string = soup.find(
+            'span', id='profile--id-card--highlight-tooltip--cakeday'
+        ).text
+        user_cakeday = datetime.datetime.strptime(
+            user_cakeday_string, '%B %d, %Y'
+        )
+
+        while soup.find(class_='_3uK2I0hi3JFTKnMUFHD2Pd') is None:
+            time.sleep(1)
+            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+
+        karma_extended = soup.find(
+            class_='_3uK2I0hi3JFTKnMUFHD2Pd'
+        ).text.split('\n')
+        post_karma = int(karma_extended[0].split()[0].replace(',', ''))
+        comment_karma = int(karma_extended[1].split()[0].replace(',', ''))
 
         # close the tab
         self.driver.close()
