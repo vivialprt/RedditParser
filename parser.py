@@ -8,6 +8,7 @@ from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+from uuid import uuid1
 import pandas as pd
 
 
@@ -28,6 +29,19 @@ class RedditParser:
     KARMA_SPAN_ID = 'profile--id-card--highlight-tooltip--karma'
     CAKEDAY_SPAN_ID = 'profile--id-card--highlight-tooltip--cakeday'
     KARMA_POPUP_CLASS = '_3uK2I0hi3JFTKnMUFHD2Pd'
+    DATA_ORDER = [
+        'post_uuid',
+        'url',
+        'username',
+        'user_karma',
+        'user_cakeday',
+        'post_karma',
+        'comment_karma',
+        'post_date',
+        'comments_number',
+        'votes_number',
+        'post_category',
+    ]
 
     def __init__(self, link: str):
         self.link = link
@@ -69,7 +83,7 @@ class RedditParser:
                 if verbose:
                     print(
                         f'Parsed posts: {len(posts)} of {num_posts}',
-                        f'Seen posts: {seen_posts}'
+                        f'(Seen: {seen_posts})'
                     )
                 if len(posts) >= num_posts:
                     break
@@ -77,7 +91,7 @@ class RedditParser:
                 break
             # scroll to the end of page to load more posts
             self.driver.find_element_by_tag_name('body').send_keys(Keys.END)
-        return pd.DataFrame(posts)
+        return pd.DataFrame(posts)[self.DATA_ORDER]
 
     def _get_post_data(
         self, post: Tag, seen_urls: List[str]
@@ -95,6 +109,7 @@ class RedditParser:
         if user_data is None:
             # 18+ page
             return None
+        data['post_uuid'] = uuid1().hex
         data['user_karma'] = user_data[0]
         data['user_cakeday'] = user_data[1]
         data['post_karma'] = user_data[2]
@@ -112,7 +127,7 @@ class RedditParser:
         return post_url_a.get('href')
 
     def _get_post_username(self, post: Tag) -> Optional[str]:
-        user_url_a = post.find('a', class_=self.POST_CATEGORY_CLASS)
+        user_url_a = post.find('a', class_=self.USER_URL_CLASS)
         if user_url_a is None:  # not a post
             return None
         return user_url_a.get('href').split('/')[-2]
@@ -188,7 +203,7 @@ class RedditParser:
         # get user cakeday
         user_cakeday_string = soup.find('span', id=self.CAKEDAY_SPAN_ID).text
         user_cakeday = datetime.datetime.strptime(
-            user_cakeday_string, '%B %d, %Y'
+            user_cakeday_string, '%B %d, %Y'  # CAREFULLY
         ).strftime('%d-%m-%y')
 
         # wait until karma details popup appears
