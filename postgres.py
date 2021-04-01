@@ -1,4 +1,5 @@
 import psycopg2 as pg
+from psycopg2 import sql
 import uuid
 
 
@@ -225,6 +226,88 @@ def insert_data(cursor, data):
     ''', data)
 
 
+def translate_keys(to, data):
+    # json, db
+    pairs = [
+        ('url', 'url'),
+        ('post_date', 'post_data'),
+        ('comments_number', 'comments'),
+        ('votes_number', 'votes'),
+        ('post_category', 'category'),
+        ('username', 'name'),
+        ('user_carma', 'total_karma'),
+        ('user_cakeday', 'cake_day'),
+        ('post_karma', 'post_karma'),
+        ('comment_karma', 'comment_karma')
+    ]
+    idx = 1 if to == 'db' else 0
+    return {
+        pair[idx]: v for pair in pairs
+        if (v := data.get(pair[idx ^ 1])) is not None
+    }
+
+
+def update_data(cursor, uuid, data):
+    post_keys = [
+        'url',
+        'post_date',
+        'comments_number',
+        'votes_number',
+        'post_category',
+    ]
+    user_keys = [
+        'username',
+        'user_karma',
+        'user_cakeday',
+        'post_karma',
+        'comment_karma'
+    ]
+    post_data = translate_keys(
+        to='db', data={k: data[k] for k in data.keys() if k in post_keys}
+    )
+    user_data = translate_keys(
+        to='db', data={k: data[k] for k in data.keys() if k in user_keys}
+    )
+
+    if post_data:
+        sql_query = sql.SQL(
+            'UPDATE posts SET {data} WHERE uuid = {id}'
+        ).format(
+            data=sql.SQL(', ').join(sql.Composed([
+                sql.Identifier(k),
+                sql.SQL(" = "),
+                sql.Placeholder(k)
+            ]) for k in post_data.keys()),
+            id=sql.Placeholder('id')
+        )
+        post_data.update(id=uuid)
+        cursor.execute(sql_query, post_data)
+
+    if user_data:
+        cursor.execute(
+            'SELECT user_id FROM posts WHERE uuid = %s;', [uuid]
+        )
+        user_id = cursor.fetchone()[0]
+        sql_query = sql.SQL(
+            'UPDATE users SET {data} WHERE id = {id}'
+        ).format(
+            data=sql.SQL(', ').join(sql.Composed([
+                sql.Identifier(k),
+                sql.SQL(" = "),
+                sql.Placeholder(k)
+            ]) for k in user_data.keys()),
+            id=sql.Placeholder('id')
+        )
+        user_data.update(id=user_id)
+        cursor.execute(sql_query, user_data)
+
+
+def delete_data(cursor, uuid):
+    cursor.execute(
+        'DELETE FROM posts WHERE uuid = %s', [uuid]
+    )
+
+
 if __name__ == '__main__':
     conn = pg.connect(
         dbname='redditdb',
@@ -235,21 +318,16 @@ if __name__ == '__main__':
     cursor = conn.cursor()
 
     data = {
-        'url': '/r/memes/comments/m1w02p/same_energy/',
-        'username': 'swat_08',
-        'user_karma': 259334,
         'user_cakeday': '20-09-20',
         'post_karma': 218415,
-        'comment_karma': 6223,
-        'post_date': '10-03-21',
-        'comments_number': 976,
         'votes_number': 153000,
         'post_category': 'memes',
     }
-    insert_data(cursor, data)
+    update_data(cursor, 'ba7796c888d011eb877701c07849de8f', data)
     conn.commit()
 
-    retrived = get_all_data(cursor)
+    delete_data(cursor, '849b822697a811eba80d4167c3822297')
+    conn.commit()
 
     cursor.close()
     conn.close()
