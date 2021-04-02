@@ -224,18 +224,19 @@ def insert_data(cursor, data):
             %(post_category)s
         );
     ''', data)
+    return data['post_uuid']
 
 
 def translate_keys(to, data):
     # json, db
     pairs = [
         ('url', 'url'),
-        ('post_date', 'post_data'),
+        ('post_date', 'post_date'),
         ('comments_number', 'comments'),
         ('votes_number', 'votes'),
         ('post_category', 'category'),
         ('username', 'name'),
-        ('user_carma', 'total_karma'),
+        ('user_karma', 'total_karma'),
         ('user_cakeday', 'cake_day'),
         ('post_karma', 'post_karma'),
         ('comment_karma', 'comment_karma')
@@ -248,6 +249,12 @@ def translate_keys(to, data):
 
 
 def update_data(cursor, uuid, data):
+    cursor.execute(
+        'SELECT user_id FROM posts WHERE uuid = %s;', [uuid]
+    )
+    if cursor.fetchone() is None:
+        raise RuntimeError('No such post.')
+
     post_keys = [
         'url',
         'post_date',
@@ -305,6 +312,15 @@ def update_data(cursor, uuid, data):
 def delete_data(cursor, uuid):
     cursor.execute(
         'DELETE FROM posts WHERE uuid = %s', [uuid]
+    )
+
+
+def connect_to_redditdb(user, password):
+    return pg.connect(
+        dbname='redditdb',
+        user=user,
+        password=password,
+        host='localhost'
     )
 
 

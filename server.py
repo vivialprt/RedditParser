@@ -1,35 +1,54 @@
-from flask import Flask, jsonify, request, abort, Response
+from flask import Flask, jsonify, request, abort
+from flask import g
 from flask.views import MethodView
-import pandas as pd
+import postgres as pg
 
 
 app = Flask(__name__)
 
 
+def get_connection():
+    if not hasattr(g, 'conn'):
+        g.conn = pg.connect_to_redditdb('ivan2', 'qweqwe')
+    return g.conn
+
+
+@app.teardown_appcontext
+def close_db_connection(error):
+    if hasattr(g, 'conn'):
+        g.conn.close()
+
+
 class PostAPI(MethodView):
 
     def __init__(self):
-        self.filename = 'reddit-202103191932.csv'
-        self.data = pd.read_csv(self.filename, sep=';')
-        self.data_keys = set(self.data.columns)
+        self.data_keys = set([
+            'url',
+            'post_date',
+            'comments_number',
+            'votes_number',
+            'post_category',
+            'username',
+            'user_karma',
+            'user_cakeday',
+            'post_karma',
+            'comment_karma'
+        ])
+        self.cursor = get_connection().cursor()
         super().__init__()
+
+    def __del__(self):
+        self.cursor.close()
 
     def get(self, post_id):
         if post_id is None:
-            return Response(
-                response=self.data.to_json(orient='records'),
-                status=200,
-                mimetype='application/json'
-            )
+            return jsonify(pg.get_all_data(self.cursor))
         else:
-            result = self.data.loc[self.data.post_uuid == post_id].iloc[0]
-            if result.empty:
+            try:
+                result = pg.get_data_by_uuid(self.cursor, post_id)
+            except RuntimeError:
                 abort(404)
-            return Response(
-                response=result.to_json(),
-                status=200,
-                mimetype='application/json'
-            )
+            return jsonify(result)
 
     def post(self):
         if not request.json:
@@ -37,41 +56,25 @@ class PostAPI(MethodView):
         data = request.json
         if set(data.keys()) != self.data_keys:
             abort(400, description='Insufficient data.')
-        post_id = data['post_uuid']
-        if post_id in self.data['post_uuid'].values:
-            abort(400, description='Post with such ID is already exist.')
-
-        self.data = self.data.append(data, ignore_index=True)
-        self.data.to_csv(self.filename, sep=';', index=False)
-        index = int(self.data.loc[self.data.post_uuid == post_id].index[0])
-
-        return jsonify({data['post_uuid']: index}), 201
+        index = pg.insert_data(self.cursor, data)
+        get_connection().commit()
+        return jsonify({'post_uuid': index}), 201
 
     def delete(self, post_id):
-        if post_id not in self.data['post_uuid'].values:
-            return {}, 200
-
-        index = self.data.loc[self.data.post_uuid == post_id].index[0]
-        self.data.drop(index=index, inplace=True)
-        self.data.to_csv(self.filename, sep=';', index=False)
+        pg.delete_data(self.cursor, post_id)
+        get_connection().commit()
         return {}, 200
 
     def put(self, post_id):
         if not request.json:
             abort(400, description='No JSON specified.')
         data = request.json
-        if post_id not in self.data['post_uuid'].values:
-            abort(404, description='Post with such ID does not exist.')
-
-        index = self.data.loc[self.data.post_uuid == post_id].index[0]
-        for key in data:
-            self.data[key][index] = data[key]
-        self.data.to_csv(self.filename, sep=';', index=False)
-        return Response(
-                response=self.data.iloc[index].to_json(),
-                status=200,
-                mimetype='application/json'
-        )
+        try:
+            pg.update_data(self.cursor, post_id, data)
+        except RuntimeError:
+            abort(404, description='No such post.')
+        get_connection().commit()
+        return {}, 200
 
 
 post_view = PostAPI.as_view('post_api')
