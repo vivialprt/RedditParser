@@ -74,8 +74,6 @@ def get_data_by_uuid(db, uuid):
 
 
 def insert_data(db, data):
-    # get uuid
-    # create post
     user = db.users.find_one({'username': data['username']})
     if user is None:
         user_data = {col: data[col] for col in USERS_COLUMNS}
@@ -97,20 +95,35 @@ def insert_data(db, data):
     return post_data['_id']
 
 
+def update_data(db, uuid, data):
+    post = db.posts.find_one({'_id': uuid})
+    if post is None:
+        raise RuntimeError('No such post')
+    post_data = {col: data[col] for col in data.keys() if col in POSTS_COLUMNS}
+    if 'post_date' in post_data.keys():
+        post_data['post_date'] = datetime.datetime.strptime(
+            post_data['post_date'], '%d-%m-%y'
+        )
+    if 'post_uuid' in post_data:
+        del post_data['post_uuid']  # FORBIDDEN
+
+    user_data = {col: data[col] for col in data.keys() if col in USERS_COLUMNS}
+    if 'user_cakeday' in user_data:
+        user_data['user_cakeday'] = datetime.datetime.strptime(
+            user_data['user_cakeday'], '%d-%m-%y'
+        )
+
+    if post_data:
+        db.posts.update_one({'_id': uuid}, {'$set': post_data})
+    if user_data:
+        db.users.update_one({'_id': post['user_id']}, {'$set': user_data})
+
+
+def delete_data(db, uuid):
+    db.posts.delete_one({'_id': uuid})
+
+
 if __name__ == '__main__':
     client = pymongo.MongoClient('localhost', 27017)
     db = client['redditdb']
-    data = {
-        'url': '/r/memes/comments/m1w02p/same_energy/',
-        'username': 'heheboi',
-        'user_karma': 259334,
-        'user_cakeday': '20-09-20',
-        'post_karma': 218415,
-        'comment_karma': 6223,
-        'post_date': '10-03-21',
-        'comments_number': 976,
-        'votes_number': 153000,
-        'post_category': 'memes',
-    }
-    inserted_uuid = insert_data(db, data)
-    print(inserted_uuid)
+    delete_data(db, 'e89bc5a6a42311eb9517bbaa441bdc6f')
