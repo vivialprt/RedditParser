@@ -54,7 +54,7 @@ def get_all_data(db):
     users = users.rename(columns={'_id': 'user_id'})
     result = pd.merge(posts, users, on='user_id')
     result = result.rename(columns={'_id': 'post_uuid'})
-    return result.drop(['user_id'], axis=1)
+    return result.drop(['user_id'], axis=1).to_dict(orient='records')
 
 
 def get_data_by_uuid(db, uuid):
@@ -121,6 +121,11 @@ def update_data(db, uuid, data):
 
 def delete_data(db, uuid):
     db.posts.delete_one({'_id': uuid})
+
+
+def connect_to_redditdb():
+    client = pymongo.MongoClient('localhost', 27017)
+    return client['redditdb']
 
 
 if __name__ == '__main__':

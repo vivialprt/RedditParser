@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, abort
 from flask import g
 from flask.views import MethodView
-import postgres as pg
+import mongo
 
 
 app = Flask(__name__)
@@ -9,14 +9,8 @@ app = Flask(__name__)
 
 def get_connection():
     if not hasattr(g, 'conn'):
-        g.conn = pg.connect_to_redditdb('ivan2', 'qweqwe')
+        g.conn = mongo.connect_to_redditdb()
     return g.conn
-
-
-@app.teardown_appcontext
-def close_db_connection(error):
-    if hasattr(g, 'conn'):
-        g.conn.close()
 
 
 class PostAPI(MethodView):
@@ -34,18 +28,15 @@ class PostAPI(MethodView):
             'post_karma',
             'comment_karma'
         ])
-        self.cursor = get_connection().cursor()
+        self.db = get_connection()
         super().__init__()
-
-    def __del__(self):
-        self.cursor.close()
 
     def get(self, post_id):
         if post_id is None:
-            return jsonify(pg.get_all_data(self.cursor))
+            return jsonify(mongo.get_all_data(self.db))
         else:
             try:
-                result = pg.get_data_by_uuid(self.cursor, post_id)
+                result = mongo.get_data_by_uuid(self.db, post_id)
             except RuntimeError:
                 abort(404)
             return jsonify(result)
@@ -56,13 +47,11 @@ class PostAPI(MethodView):
         data = request.json
         if set(data.keys()) != self.data_keys:
             abort(400, description='Insufficient data.')
-        index = pg.insert_data(self.cursor, data)
-        get_connection().commit()
+        index = mongo.insert_data(self.db, data)
         return jsonify({'post_uuid': index}), 201
 
     def delete(self, post_id):
-        pg.delete_data(self.cursor, post_id)
-        get_connection().commit()
+        mongo.delete_data(self.db, post_id)
         return {}, 200
 
     def put(self, post_id):
@@ -70,10 +59,9 @@ class PostAPI(MethodView):
             abort(400, description='No JSON specified.')
         data = request.json
         try:
-            pg.update_data(self.cursor, post_id, data)
+            mongo.update_data(self.db, post_id, data)
         except RuntimeError:
             abort(404, description='No such post.')
-        get_connection().commit()
         return {}, 200
 
 
